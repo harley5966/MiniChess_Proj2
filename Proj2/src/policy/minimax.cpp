@@ -6,7 +6,7 @@
 /*============================================================
  * MiniMax — eval_ctx
  *
- * Negamax without pruning. Caller manages memory.
+ * Negamax with pruning. Caller manages memory.
  *============================================================*/
 int MiniMax::eval_ctx(
     State *state,
@@ -14,7 +14,9 @@ int MiniMax::eval_ctx(
     GameHistory& history,
     int ply,
     SearchContext& ctx,
-    const MMParams& p
+    const MMParams& p,
+    int alpha,
+    int beta
 ){
     ctx.nodes++;
     if(ply > ctx.seldepth){
@@ -69,7 +71,14 @@ int MiniMax::eval_ctx(
 
         // [Hackathon TODO 3-3]
         // search the child one level deeper
-        int score = eval_ctx(next, depth - 1, history, ply + 1, ctx, p);
+        int score;
+        if(same){
+            // same player: do not swap signs
+            score = eval_ctx(next, depth - 1, history, ply + 1, ctx, p, alpha, beta);
+        } else {
+            // different player: negamax-transform
+            score = -eval_ctx(next, depth - 1, history, ply + 1, ctx, p, -beta, -alpha);
+        }
 
         // [Hackathon TODO 3-4]
         // convert raw to the current player's perspective.
@@ -83,6 +92,15 @@ int MiniMax::eval_ctx(
         // update best_score if this child is better.
         if(score > best_score){
             best_score = score;
+        }
+
+        if(best_score > alpha){
+            alpha = best_score;
+        }
+
+        if(alpha >= beta){
+            // beta cutoff
+            break;
         }
 
     }
@@ -116,6 +134,8 @@ SearchResult MiniMax::search(
     int best_score = M_MAX - 10;
     int move_index = 0;
     int total_moves = (int)state->legal_actions.size();
+    int alpha = M_MAX;
+    int beta = P_MAX;
 
     for(auto& action : state->legal_actions){
 
@@ -125,20 +145,29 @@ SearchResult MiniMax::search(
         // create the child state after applying action
         State* next = state->next_state(action);
         bool same = next->same_player_as_parent(); //default false
-        int score = eval_ctx(next, depth - 1, history, 1, ctx, p);
-        if(!same){
-            score = -score; //if the child is different from parent, negate the score
+        int score;
+        if(same){
+            score = eval_ctx(next, depth - 1, history, 1, ctx, p, alpha, beta);
+        } else {
+            score = -eval_ctx(next, depth - 1, history, 1, ctx, p, -beta, -alpha);
         }
         delete next;
-            if(score > best_score){
-                // [ Hackathon TODO 4-2 ]
-                // keep this move if it is the best so far
-                best_score = score;
-                result.best_move = action;
-                if(p.report_partial && ctx.on_root_update){
-                   ctx.on_root_update({result.best_move, best_score, depth, move_index + 1, total_moves});
-                }
-            }  
+        if(score > best_score){
+            // keep this move if it is the best so far
+            best_score = score;
+            result.best_move = action;
+            if(p.report_partial && ctx.on_root_update){
+               ctx.on_root_update({result.best_move, best_score, depth, move_index + 1, total_moves});
+            }
+        }
+
+        if(best_score > alpha){
+            alpha = best_score;
+        }
+        if(alpha >= beta){
+            // beta cutoff at root
+            break;
+        }
         move_index++;
     }
 
